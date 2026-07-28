@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.serialization.json.Json
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -313,6 +314,42 @@ class DockerStateHolderTest {
     fun `returns null for a compose payload that is not an array`() {
         assertNull(DockerStateHolder.parseComposeProjects("no compose plugin installed"))
         assertNull(DockerStateHolder.parseComposeProjects(""))
+    }
+
+    // endregion
+
+    // region what actually reaches the wire
+
+    /**
+     * kotlinx serializes **constructor properties only**. Three of these rows
+     * once carried `isRunning` / `failing` / `healthy` as computed getters, and
+     * the field was silently absent from every synced payload — a host renderer
+     * would have had to re-derive it, which is the duplication these mirrored
+     * rows exist to remove. Only an end-to-end run caught it, so this is the
+     * unit-level guard: assert against the encoded JSON, not the Kotlin object.
+     */
+    @Test
+    fun `the derived container fields are serialized not computed`() {
+        val state = DockerState(containers = DockerStateHolder.parseContainers(psOutput))
+
+        val json = Json.encodeToString(DockerState.serializer(), state)
+
+        assertTrue(json.contains("\"isRunning\":true"), "isRunning must reach the wire: $json")
+        assertTrue(json.contains("\"composeProject\":\"shop\""), json)
+        assertTrue(json.contains("\"hostPort\":8080"), json)
+    }
+
+    /** …and the same for the image row's two derived fields. */
+    @Test
+    fun `the derived image fields are serialized not computed`() {
+        val images = DockerStateHolder.parseImages(
+            """{"ID":"sha256:deadbeefcafebabe","Repository":"<none>","Tag":"<none>","Size":"1MB","CreatedSince":"now"}"""
+        )
+
+        val json = Json.encodeToString(DockerState.serializer(), DockerState(images = images))
+
+        assertTrue(json.contains("\"reference\":\"deadbeefcafe\""), json)
+        assertTrue(json.contains("\"dangling\":true"), json)
     }
 
     // endregion

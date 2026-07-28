@@ -120,9 +120,14 @@ data class DockerContainer(
     /** Compose project label, when the container belongs to one. */
     val composeProject: String = "",
     val createdAt: String = "",
-) {
-    val isRunning: Boolean get() = state.equals("running", ignoreCase = true)
-}
+    /**
+     * Whether [state] is `running`. A **constructor property**, not a computed
+     * getter: kotlinx serializes only constructor properties, so a getter would
+     * be absent from the synced payload and every host renderer would have to
+     * re-derive it — which is the duplication these mirrored rows exist to avoid.
+     */
+    val isRunning: Boolean = false,
+)
 
 @Serializable
 data class DockerImage(
@@ -519,6 +524,7 @@ class DockerStateHolder : PluginStateHolder<DockerState, DockerIntent, Nothing> 
             ports = parsePorts(ports),
             composeProject = parseLabels(labels)["com.docker.compose.project"].orEmpty(),
             createdAt = createdAt,
+            isRunning = state.equals("running", ignoreCase = true),
         )
     }
 

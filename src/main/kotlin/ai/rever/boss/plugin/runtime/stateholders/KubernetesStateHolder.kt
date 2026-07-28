@@ -133,9 +133,14 @@ data class KubeWorkload(
     val desired: Int,
     val images: List<String> = emptyList(),
     val createdAt: String = "",
-) {
-    val healthy: Boolean get() = desired > 0 && ready == desired
-}
+    /**
+     * Whether every desired replica is ready. A **constructor property**, not a
+     * computed getter: kotlinx serializes only constructor properties, so a
+     * getter would be absent from the synced payload and every host renderer
+     * would have to re-derive it.
+     */
+    val healthy: Boolean = false,
+)
 
 @Serializable
 data class KubePod(
@@ -150,12 +155,14 @@ data class KubePod(
     val createdAt: String = "",
     val containers: List<String> = emptyList(),
     val initContainers: List<String> = emptyList(),
-) {
-    val failing: Boolean
-        get() = phase.equals("Failed", ignoreCase = true) ||
-            phase.equals("CrashLoopBackOff", ignoreCase = true) ||
-            (phase.equals("Running", ignoreCase = true) && readyContainers < totalContainers)
-}
+    /**
+     * Whether this pod needs attention. A **constructor property**, not a
+     * computed getter: kotlinx serializes only constructor properties, so a
+     * getter would be absent from the synced payload and every host renderer
+     * would have to re-derive it.
+     */
+    val failing: Boolean = false,
+)
 
 @Serializable
 data class KubeServicePort(
@@ -783,17 +790,21 @@ class KubernetesStateHolder : PluginStateHolder<KubernetesState, KubernetesInten
             // waiting reason is what a human actually wants to see in the row.
             val waitingReason = status.containerStatuses
                 .firstNotNullOfOrNull { it.state.waiting?.reason?.ifBlank { null } }
+            val phase = waitingReason ?: status.phase
+            val ready = status.containerStatuses.count { it.ready }
+            val total = status.containerStatuses.size.takeIf { it > 0 } ?: spec.containers.size
             return KubePod(
                 name = metadata.name,
                 namespace = metadata.namespace,
-                phase = waitingReason ?: status.phase,
-                readyContainers = status.containerStatuses.count { it.ready },
-                totalContainers = status.containerStatuses.size.takeIf { it > 0 } ?: spec.containers.size,
+                phase = phase,
+                readyContainers = ready,
+                totalContainers = total,
                 restarts = status.containerStatuses.sumOf { it.restartCount },
                 node = spec.nodeName,
                 createdAt = metadata.creationTimestamp,
                 containers = spec.containers.map { it.name },
                 initContainers = spec.initContainers.map { it.name },
+                failing = isFailing(phase, ready, total),
             )
         }
     }
@@ -827,14 +838,18 @@ class KubernetesStateHolder : PluginStateHolder<KubernetesState, KubernetesInten
 
         fun toState(kindOverride: String): KubeWorkload {
             val isDaemonSet = kindOverride.equals("DaemonSet", ignoreCase = true)
+            val ready = if (isDaemonSet) status.numberReady else status.readyReplicas
+            val desired =
+                if (isDaemonSet) status.desiredNumberScheduled else (spec.replicas ?: status.replicas)
             return KubeWorkload(
                 kind = kindOverride,
                 name = metadata.name,
                 namespace = metadata.namespace,
-                ready = if (isDaemonSet) status.numberReady else status.readyReplicas,
-                desired = if (isDaemonSet) status.desiredNumberScheduled else (spec.replicas ?: status.replicas),
+                ready = ready,
+                desired = desired,
                 images = spec.template.spec.containers.map { it.image }.filter { it.isNotBlank() },
                 createdAt = metadata.creationTimestamp,
+                healthy = desired > 0 && ready == desired,
             )
         }
     }
@@ -927,6 +942,16 @@ class KubernetesStateHolder : PluginStateHolder<KubernetesState, KubernetesInten
             coerceInputValues = true
             explicitNulls = false
         }
+
+        /**
+         * Whether a pod needs attention. A pod stuck in CrashLoopBackOff still
+         * reports `phase: Running`, so the waiting reason has already replaced
+         * the phase by the time this is called.
+         */
+        internal fun isFailing(phase: String, readyContainers: Int, totalContainers: Int): Boolean =
+            phase.equals("Failed", ignoreCase = true) ||
+                phase.equals("CrashLoopBackOff", ignoreCase = true) ||
+                (phase.equals("Running", ignoreCase = true) && readyContainers < totalContainers)
 
         /** Every spelling of a Secret kind kubectl accepts. */
         internal fun isSecretKind(kind: String): Boolean =

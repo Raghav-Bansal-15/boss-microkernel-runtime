@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.serialization.json.Json
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -298,6 +299,53 @@ class KubernetesStateHolderTest {
     fun `parses unusable output as no rows`() {
         assertEquals(emptyList(), KubernetesStateHolder.parsePods("not json"))
         assertEquals(emptyList(), KubernetesStateHolder.parsePods(""))
+    }
+
+    // endregion
+
+    // region what actually reaches the wire
+
+    /**
+     * kotlinx serializes **constructor properties only**. `failing` and `healthy`
+     * were computed getters and were therefore absent from every synced payload;
+     * only an end-to-end run caught it. This is the unit-level guard: assert
+     * against the encoded JSON, not the Kotlin object.
+     */
+    @Test
+    fun `the derived pod and workload fields are serialized not computed`() {
+        val pods = KubernetesStateHolder.parsePods(
+            """{"items":[{"metadata":{"name":"api-1","namespace":"prod"},"spec":{"containers":[{"name":"a"},{"name":"b"}]},
+               "status":{"phase":"Running","containerStatuses":[{"ready":false,"restartCount":1,"state":{"waiting":{"reason":"CrashLoopBackOff"}}},{"ready":true,"restartCount":0,"state":{}}]}}]}"""
+        )
+        val workloads = KubernetesStateHolder.parseWorkloads(
+            """{"items":[{"metadata":{"name":"api","namespace":"prod"},"spec":{"replicas":2,"template":{"spec":{"containers":[{"image":"api:1"}]}}},"status":{"readyReplicas":2,"replicas":2}}]}""",
+            "Deployment",
+        )
+
+        val json = Json.encodeToString(
+            KubernetesState.serializer(),
+            KubernetesState(pods = pods, workloads = workloads),
+        )
+
+        assertTrue(json.contains("\"failing\":true"), "failing must reach the wire: $json")
+        assertTrue(json.contains("\"healthy\":true"), "healthy must reach the wire: $json")
+        assertTrue(json.contains("\"phase\":\"CrashLoopBackOff\""), json)
+    }
+
+    /**
+     * The Secret guarantee, restated at the level that matters: the encoded
+     * payload is what leaves the process, and it must carry no value-bearing key.
+     */
+    @Test
+    fun `an encoded Secret row carries no value bearing key`() {
+        val secrets = KubernetesStateHolder.parseSecretRows("db-password prod Opaque 2026-07-01T00:00:00Z\n")
+
+        val json = Json.encodeToString(KubernetesState.serializer(), KubernetesState(secrets = secrets))
+
+        assertTrue(json.contains("\"name\":\"db-password\""), json)
+        listOf("\"data\"", "\"stringData\"", "\"value\"", "\"payload\"").forEach { key ->
+            assertFalse(json.contains(key), "$key must never be encoded: $json")
+        }
     }
 
     // endregion
