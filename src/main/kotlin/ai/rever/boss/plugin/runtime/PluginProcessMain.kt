@@ -205,8 +205,13 @@ private fun createStateSyncService(
 /**
  * Resolve intent deserialization based on the state holder type.
  * Maps intent type strings to concrete intent objects for each known state holder.
+ *
+ * `internal` rather than private so the arm table itself is testable. A holder
+ * whose arm is missing here loads, registers, heartbeats and publishes state, and
+ * then silently drops every intent the host sends — indistinguishable from a UI
+ * whose buttons do nothing. Deleting an arm has to fail a test.
  */
-private fun resolveIntentDeserializer(
+internal fun resolveIntentDeserializer(
     stateHolder: PluginStateHolder<*, *, *>,
     intentType: String,
     payloadBytes: ByteArray,
@@ -253,6 +258,22 @@ private fun resolveIntentDeserializer(
                 "DiscardChanges" -> ai.rever.boss.plugin.runtime.stateholders.GitIntent.DiscardChanges(payloadStr)
                 else -> null
             }
+        }
+        // A holder with no arm here loads, registers, heartbeats and publishes
+        // state — and then silently drops every intent the host sends it, which
+        // looks exactly like a UI whose buttons do nothing. Each of the four
+        // below owns its decoder next to its intent type.
+        is ai.rever.boss.plugin.runtime.stateholders.DockerStateHolder -> {
+            ai.rever.boss.plugin.runtime.stateholders.decodeDockerIntent(intentType, payloadStr)
+        }
+        is ai.rever.boss.plugin.runtime.stateholders.KubernetesStateHolder -> {
+            ai.rever.boss.plugin.runtime.stateholders.decodeKubernetesIntent(intentType, payloadStr)
+        }
+        is ai.rever.boss.plugin.runtime.stateholders.AtlasStateHolder -> {
+            ai.rever.boss.plugin.runtime.stateholders.decodeAtlasIntent(intentType, payloadStr)
+        }
+        is ai.rever.boss.plugin.runtime.stateholders.ToolCreatorStateHolder -> {
+            ai.rever.boss.plugin.runtime.stateholders.decodeToolCreatorIntent(intentType, payloadStr)
         }
         else -> {
             logger.debug("No intent deserializer for {}: {}", stateHolder::class.java.simpleName, intentType)
