@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -506,7 +507,7 @@ class JupyterStateHolder : PluginStateHolder<JupyterState, JupyterIntent, Nothin
         /**
          * A fresh untitled notebook with one empty code cell — the same starting
          * document the in-process plugin shows for New Tab → Jupyter.
-         */
+         *
          * Selection is left unset so the constructor's first
          * [JupyterIntent.SelectCell] is a real state change.
          */
@@ -528,3 +529,52 @@ class JupyterStateHolder : PluginStateHolder<JupyterState, JupyterIntent, Nothin
         }
     }
 }
+
+/**
+ * Decode one wire intent for [JupyterStateHolder].
+ *
+ * Single-field intents take the payload as a bare string (the convention the
+ * other holders' arms use); multi-field intents take a JSON object. An unknown
+ * [intentType], or a payload missing the fields the intent needs, decodes to
+ * null so `PluginStateSyncService` drops it rather than editing the document
+ * from a half-read message.
+ */
+internal fun decodeJupyterIntent(intentType: String, payload: String): JupyterIntent? {
+    val obj = runCatching { jupyterIntentJson.parseToJsonElement(payload) as? JsonObject }.getOrNull()
+
+    fun str(key: String): String? = obj?.get(key)?.jsonPrimitive?.contentOrNull
+
+    return when (intentType) {
+        "SetCellSource" -> {
+            val cellId = str("cellId") ?: return null
+            JupyterIntent.SetCellSource(cellId, str("source") ?: "")
+        }
+
+        "AddCell" -> JupyterIntent.AddCell(str("afterCellId"), str("cellType") ?: "code")
+
+        "MoveCell" -> {
+            val cellId = str("cellId") ?: return null
+            val up = obj?.get("up")?.jsonPrimitive?.booleanOrNull ?: return null
+            JupyterIntent.MoveCell(cellId, up)
+        }
+
+        "ChangeCellType" -> {
+            val cellId = str("cellId") ?: return null
+            val cellType = str("cellType") ?: return null
+            JupyterIntent.ChangeCellType(cellId, cellType)
+        }
+
+        "OpenNotebook" -> payload.ifBlank { null }?.let { JupyterIntent.OpenNotebook(it) }
+        "SelectCell" -> payload.ifBlank { null }?.let { JupyterIntent.SelectCell(it) }
+        "DeleteCell" -> payload.ifBlank { null }?.let { JupyterIntent.DeleteCell(it) }
+
+        "Reload" -> JupyterIntent.Reload
+        "ClearAllOutputs" -> JupyterIntent.ClearAllOutputs
+        "Save" -> JupyterIntent.Save
+        "ClearError" -> JupyterIntent.ClearError
+
+        else -> null
+    }
+}
+
+private val jupyterIntentJson = Json { ignoreUnknownKeys = true; isLenient = true }

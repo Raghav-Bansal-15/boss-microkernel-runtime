@@ -6,6 +6,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.floatOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
 
 // region State
@@ -454,3 +458,71 @@ class FlowStateHolder : PluginStateHolder<FlowState, FlowIntent, Nothing> {
         )
     }
 }
+
+/**
+ * Decode one wire intent for [FlowStateHolder].
+ *
+ * Single-field intents take the payload as a bare string (the convention the
+ * other holders' arms use); multi-field intents take a JSON object. An
+ * unknown [intentType], or a payload that does not carry the fields the intent
+ * needs, decodes to null so `PluginStateSyncService` drops it rather than
+ * mutating the graph from a half-read message.
+ */
+internal fun decodeFlowIntent(intentType: String, payload: String): FlowIntent? {
+    val obj = runCatching { intentJson.parseToJsonElement(payload) as? JsonObject }.getOrNull()
+
+    fun str(key: String): String? = obj?.get(key)?.jsonPrimitive?.contentOrNull
+    fun num(key: String): Float? = obj?.get(key)?.jsonPrimitive?.floatOrNull
+    fun int(key: String): Int? = obj?.get(key)?.jsonPrimitive?.intOrNull
+
+    return when (intentType) {
+        "AddNode" -> {
+            val kindId = str("kindId") ?: return null
+            FlowIntent.AddNode(kindId, num("x") ?: 0f, num("y") ?: 0f)
+        }
+
+        "MoveNode" -> {
+            val nodeId = str("nodeId") ?: return null
+            val x = num("x") ?: return null
+            val y = num("y") ?: return null
+            FlowIntent.MoveNode(nodeId, x, y)
+        }
+
+        "SetNodeTitle" -> {
+            val nodeId = str("nodeId") ?: return null
+            FlowIntent.SetNodeTitle(nodeId, str("title") ?: "")
+        }
+
+        "SetNodeConfig" -> {
+            val nodeId = str("nodeId") ?: return null
+            val config = obj?.get("config") as? JsonObject ?: return null
+            FlowIntent.SetNodeConfig(nodeId, config.toString())
+        }
+
+        "Connect" -> {
+            val fromNode = str("fromNode") ?: return null
+            val toNode = str("toNode") ?: return null
+            FlowIntent.Connect(fromNode, int("fromPort") ?: 0, toNode, int("toPort") ?: 0)
+        }
+
+        "SetView" -> {
+            val scale = num("scale") ?: return null
+            FlowIntent.SetView(scale, num("panX") ?: 0f, num("panY") ?: 0f)
+        }
+
+        "DeleteNode" -> payload.ifBlank { null }?.let { FlowIntent.DeleteNode(it) }
+        "DeleteEdge" -> payload.ifBlank { null }?.let { FlowIntent.DeleteEdge(it) }
+        "SelectNode" -> payload.ifBlank { null }?.let { FlowIntent.SelectNode(it) }
+        "SelectEdge" -> payload.ifBlank { null }?.let { FlowIntent.SelectEdge(it) }
+        "LoadSnapshot" -> payload.ifBlank { null }?.let { FlowIntent.LoadSnapshot(it) }
+
+        "ClearSelection" -> FlowIntent.ClearSelection
+        "ResetView" -> FlowIntent.ResetView
+        "ClearGraph" -> FlowIntent.ClearGraph
+        "ClearError" -> FlowIntent.ClearError
+
+        else -> null
+    }
+}
+
+private val intentJson = Json { ignoreUnknownKeys = true; isLenient = true }
