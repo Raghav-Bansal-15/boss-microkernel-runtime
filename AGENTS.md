@@ -16,7 +16,32 @@ plugin-context calls back to the kernel.
 - `PluginUiClient` - the plugin's **client** of the host's `PluginUIService`:
   registers surfaces, streams the widget tree up, reads user events back.
   The plugin dials the kernel here, not the other way round - see below.
-- `stateholders/` - concrete state holders for each in-house panel plugin.
+- `stateholders/` - concrete state holders for the in-house plugins. A plugin
+  opts in by naming one in its `plugin.json` (`isolationMode:
+  "out-of-process"` + `stateHolderClass`); `PluginProcessMain` then wires
+  `PluginStateSyncService` around it. A holder whose constructor never calls
+  `updateState` stays at version 0, and the host's `applyState` guard drops
+  version-0 envelopes - so it loads, registers, heartbeats and renders
+  *nothing*. Every holder must publish once from its constructor.
+  `JupyterStateHolder` and `FlowStateHolder` are the two whose surfaces are
+  the plugin's own data rather than a kernel provider's; both document
+  precisely what a child JVM cannot do (Jupyter: no kernel execution, and no
+  AI at any api version because `RemotePluginContext` is not a
+  `PluginContext` and has no LLM provider; Flow: no run, and no persistence
+  because `pluginStorageFactory` is null and the wire has no storage
+  service).
+
+## Tests
+
+```bash
+./gradlew test    # 254 tests
+```
+
+The four upstream jars are on the **test** compile classpath too
+(`testImplementation`), not just `compileOnly` - without that the whole test
+source set fails to compile on `ai.rever.boss.ipc.proto` and nothing runs.
+`build.yml` runs `./gradlew build` on every pull request, which includes `test`, so CI
+does run these.
 
 ## Build
 
