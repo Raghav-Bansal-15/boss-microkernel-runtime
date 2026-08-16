@@ -408,7 +408,7 @@ internal fun resolveIntentDeserializer(
         }
         // A holder with no arm here loads, registers, heartbeats and publishes
         // state — and then silently drops every intent the host sends it, which
-        // looks exactly like a UI whose buttons do nothing. Each of the four
+        // looks exactly like a UI whose buttons do nothing. Each of the six
         // below owns its decoder next to its intent type.
         is ai.rever.boss.plugin.runtime.stateholders.DockerStateHolder -> {
             ai.rever.boss.plugin.runtime.stateholders.decodeDockerIntent(intentType, payloadStr)
@@ -421,6 +421,12 @@ internal fun resolveIntentDeserializer(
         }
         is ai.rever.boss.plugin.runtime.stateholders.ToolCreatorStateHolder -> {
             ai.rever.boss.plugin.runtime.stateholders.decodeToolCreatorIntent(intentType, payloadStr)
+        }
+        is ai.rever.boss.plugin.runtime.stateholders.JupyterStateHolder -> {
+            ai.rever.boss.plugin.runtime.stateholders.decodeJupyterIntent(intentType, payloadStr)
+        }
+        is ai.rever.boss.plugin.runtime.stateholders.FlowStateHolder -> {
+            ai.rever.boss.plugin.runtime.stateholders.decodeFlowIntent(intentType, payloadStr)
         }
         else -> {
             logger.debug("No intent deserializer for {}: {}", stateHolder::class.java.simpleName, intentType)

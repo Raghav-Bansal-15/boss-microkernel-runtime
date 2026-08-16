@@ -127,6 +127,15 @@ dependencies {
     }
     testImplementation(files(bossPluginApiJar))
 
+    // ...and again for tests. `compileOnly` does not reach the test compile
+    // classpath, so without this `src/test` cannot see `ai.rever.boss.ipc.proto`
+    // and the *whole test source set* fails to compile — which is exactly what it
+    // was doing: `PluginStateSyncTest` and `PluginOopIntegrationTest` have never
+    // run, because CI only builds `fatJar` and never invokes `test`.
+    upstreamJars.forEach { jar ->
+        testImplementation(files("$upstreamJarDir/$jar"))
+    }
+
     // Transitive runtime libs. Versions match BossConsole's libs.versions.toml.
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
