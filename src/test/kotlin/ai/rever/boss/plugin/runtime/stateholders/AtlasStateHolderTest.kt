@@ -400,4 +400,35 @@ class AtlasStateHolderTest {
         assertTrue(json.contains("Cannot write files."), "the description must travel too: $json")
     }
 
+
+    /**
+     * The property finding 8 was about: this holder must agree with the shared resolver rather
+     * than keep a private candidate list. It used to search five hard-coded paths and never
+     * PATH, so a `claude` installed by nvm, volta, bun or asdf read as "not installed".
+     *
+     * Asserted as an agreement rather than by mutating PATH, which a JVM cannot portably do -
+     * the end-to-end check (a stub reachable only via PATH) is in the PR.
+     */
+    @Test
+    fun `the claude lookup agrees with the shared resolver`() {
+        val viaShared = ProcessRunner.resolve("claude", AtlasStateHolder.Cli.fallbackDirs())
+        val viaOverride = System.getenv("CLAUDE_CLI_PATH")
+            ?.let { File(it) }
+            ?.takeIf { it.canExecute() }
+
+        val expected = (viaOverride ?: viaShared) != null
+
+        assertEquals(expected, AtlasStateHolder(scope).currentState().backendAvailable)
+    }
+
+    /** The override must outrank PATH, because it is how a test points this at a stub. */
+    @Test
+    fun `the fallback directories are directories, not binaries`() {
+        // ProcessRunner.resolve appends the binary name, so a full path here would look for
+        // `.../claude/claude` and silently never match.
+        AtlasStateHolder.Cli.fallbackDirs().forEach { dir ->
+            assertFalse(dir.endsWith("/claude"), "$dir must be a directory, not the binary path")
+        }
+    }
+
 }

@@ -558,30 +558,51 @@ class AtlasStateHolder : PluginStateHolder<AtlasState, AtlasIntent, Nothing> {
     }
 
     /**
-     * The `claude` binary, resolved the way the plugin's `ClaudeCodeCliBackend`
-     * resolves it: the `CLAUDE_CLI_PATH` override first, then the usual install
-     * locations, because a GUI-launched process does not inherit the shell PATH.
+     * The `claude` binary: the `CLAUDE_CLI_PATH` override first, then `PATH`, then the usual
+     * install locations.
      *
-     * The plugin's final fallback — a `/bin/sh -lc "command -v claude"` login
-     * shell — is deliberately not reproduced. A login shell in a spawned plugin
-     * child sources the operator's whole profile for a path lookup, and
-     * `CLAUDE_CLI_PATH` already covers the case it was there for. It is also the
-     * seam a test uses to point this holder at a stub and never reach a model.
+     * **`PATH` is searched, and it used not to be.** This holder had its own candidate list of
+     * five hard-coded paths while the Docker and Kubernetes holders went through
+     * [ProcessRunner.resolve], whose contract is PATH-first. The five cover a GUI-launched
+     * process that inherited no shell PATH, which is the real case they were written for - but
+     * dropping PATH itself is a separate loss: a `claude` installed by nvm, volta, bun or asdf
+     * lives under none of them, so `backendAvailable` came back false and the chat offered an
+     * "install it" hint on a machine where it was installed. It now uses the shared resolver,
+     * with those five as the fallback directories.
+     *
+     * The plugin's final fallback — a `/bin/sh -lc "command -v claude"` login shell — is still
+     * deliberately not reproduced. A login shell in a spawned plugin child sources the operator's
+     * whole profile for a path lookup, and PATH plus `CLAUDE_CLI_PATH` now cover what it was
+     * there for. The override stays ahead of PATH because it is also the seam a test uses to
+     * point this holder at a stub and never reach a model.
      */
-    private object Cli {
-        fun resolve(): File? {
+    internal object Cli {
+        /**
+         * Install locations to try when `claude` is not on `PATH`.
+         *
+         * Directories, not full paths, because [ProcessRunner.resolve] appends the binary name -
+         * which is what lets this holder use the same resolver as the Docker and Kubernetes ones
+         * instead of a private copy that behaved differently.
+         */
+        internal fun fallbackDirs(): List<String> {
             val home = System.getProperty("user.home").orEmpty()
-            val candidates = listOfNotNull(
-                System.getenv("CLAUDE_CLI_PATH"),
-                "$home/.local/bin/claude",
-                "$home/.claude/local/claude",
-                "/opt/homebrew/bin/claude",
-                "/usr/local/bin/claude",
-                "/usr/bin/claude",
+            return listOf(
+                "$home/.local/bin",
+                "$home/.claude/local",
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "/usr/bin",
             )
-            return candidates
-                .map(::File)
-                .firstOrNull { runCatching { it.canExecute() }.getOrDefault(false) }
+        }
+
+        fun resolve(): File? {
+            // The explicit override stays ahead of everything, including PATH. It is a full path
+            // to a binary rather than a directory, and it is the seam a test uses to point this
+            // holder at a stub - so a real `claude` earlier on PATH must not win over it.
+            val override = System.getenv("CLAUDE_CLI_PATH")
+                ?.let(::File)
+                ?.takeIf { runCatching { it.canExecute() }.getOrDefault(false) }
+            return override ?: ProcessRunner.resolve("claude", fallbackDirs())
         }
     }
 }
