@@ -6,6 +6,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.io.File
 import kotlin.test.AfterTest
+import ai.rever.boss.plugin.runtime.StateWireJson
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -375,4 +376,20 @@ class AtlasStateHolderTest {
 
     private fun createTempFile(prefix: String, suffix: String): File =
         java.nio.file.Files.createTempFile(prefix, suffix).toFile()
+
+    /**
+     * The enum's own `label`/`description` never reach the wire - kotlinx encodes an enum as its
+     * serial name alone - so the catalog is the only thing that carries them. The sibling test
+     * for data-class derived fields existed; enums slipped through the same net.
+     */
+    @Test
+    fun `permission mode labels reach the wire, not just the enum name`() {
+        val json = StateWireJson.encodeToString(AtlasState.serializer(), AtlasState())
+
+        assertTrue(json.contains("\"permissionMode\":\"READ_ONLY\""), "the selection is the name: $json")
+        assertTrue(json.contains("\"Read-only\""), "the label must travel in the catalog: $json")
+        assertTrue(json.contains("\"Allow writes\""), json)
+        assertTrue(json.contains("Cannot write files."), "the description must travel too: $json")
+    }
+
 }

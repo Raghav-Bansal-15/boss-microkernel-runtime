@@ -39,6 +39,9 @@ data class AtlasState(
     /** Empty name = the implicit default (a session with no `--agent`). */
     val selectedAgent: String = "",
     val permissionMode: AtlasPermissionMode = AtlasPermissionMode.READ_ONLY,
+    /** Every selectable mode with its display text, so the host can render the picker. */
+    val permissionModes: List<AtlasPermissionModeOption> =
+        AtlasPermissionMode.entries.map { AtlasPermissionModeOption(it, it.label, it.description) },
     /** True while a turn is in flight. */
     val sending: Boolean = false,
     /** True when a `claude` binary was found. False renders the install hint. */
@@ -89,8 +92,21 @@ enum class AtlasAgentSource { USER, PROJECT, BUILT_IN }
 data class AtlasProject(val name: String, val path: String, val lastOpened: Long = 0L)
 
 /**
- * Mirrors the plugin's `PermissionMode`. The label and description travel with
- * the state because a host renderer has no copy of the plugin's enum.
+ * One selectable permission mode, as data rather than as an enum.
+ *
+ * This is what makes the label and description reach the host at all - see
+ * [AtlasPermissionMode] for why the enum's own properties do not.
+ */
+@Serializable
+data class AtlasPermissionModeOption(val mode: AtlasPermissionMode, val label: String, val description: String)
+
+/**
+ * Mirrors the plugin's `PermissionMode`.
+ *
+ * **These constructor properties do not travel.** kotlinx.serialization encodes an enum as its
+ * serial name and nothing else, so a host receives `"READ_ONLY"` - not the label, description or
+ * CLI value. They are kept here because the child needs [cliValue] to build the command line;
+ * anything the renderer has to display is published separately as [AtlasState.permissionModes].
  */
 @Serializable
 enum class AtlasPermissionMode(val cliValue: String, val label: String, val description: String) {

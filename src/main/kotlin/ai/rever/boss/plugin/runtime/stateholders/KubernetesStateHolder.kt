@@ -411,6 +411,10 @@ class KubernetesStateHolder : PluginStateHolder<KubernetesState, KubernetesInten
                 fetchDetail("pod", intent.podName, KubeDetailKind.LOGS, argv)
             }
 
+            // Deliberately NOT Secret-guarded, unlike ShowYaml below. `kubectl describe secret`
+            // prints key names and byte counts, never the values, so it leaks nothing - but the
+            // asymmetry is invisible next to a guarded sibling, so it is stated rather than left
+            // to be rediscovered.
             is KubernetesIntent.ShowDescribe -> fetchDetail(
                 kind = intent.kind,
                 name = intent.name,
@@ -954,9 +958,26 @@ class KubernetesStateHolder : PluginStateHolder<KubernetesState, KubernetesInten
                 (phase.equals("Running", ignoreCase = true) && readyContainers < totalContainers)
 
         /** Every spelling of a Secret kind kubectl accepts. */
+        /**
+         * Whether [kind] names the Secret resource, in any spelling kubectl accepts.
+         *
+         * kubectl takes `<resource>.<version>.<group>` as well as the bare name, and for the
+         * core group the trailing dot is required rather than optional - `secrets.`,
+         * `secret.v1.` and `secrets.v1.core` are all valid ways to ask for the same thing. A
+         * predicate that only singularised the bare name let every one of those through, and
+         * what came back was a base64 `data` map published in the state envelope. That is worse
+         * here than in-process: the envelope is a copy that leaves the process.
+         *
+         * So the group, version and any subresource path are stripped before singularising,
+         * and the check is on what is left rather than on a prefix.
+         */
         internal fun isSecretKind(kind: String): Boolean =
-            kind.trim().lowercase().removeSuffix("s") == "secret" ||
-                kind.trim().lowercase().startsWith("secret/")
+            kind
+                .trim()
+                .lowercase()
+                .substringBefore('/')
+                .substringBefore('.')
+                .removeSuffix("s") == "secret"
 
         internal fun serverVersionOf(stdout: String): String =
             SERVER_VERSION_REGEX.find(stdout)?.groupValues?.getOrNull(1) ?: "unknown"

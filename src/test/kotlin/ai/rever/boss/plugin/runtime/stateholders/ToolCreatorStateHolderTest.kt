@@ -7,6 +7,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.io.File
 import kotlin.test.AfterTest
+import ai.rever.boss.plugin.runtime.StateWireJson
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -335,4 +336,16 @@ class ToolCreatorStateHolderTest {
         const val PROBE_WAIT_MS = 15_000L
         const val POLL_MS = 25L
     }
+
+    /** Same net as the Atlas catalog: an enum reaches the host as its name and nothing else. */
+    @Test
+    fun `agent and permission labels reach the wire, not just the enum names`() {
+        val json = StateWireJson.encodeToString(ToolCreatorState.serializer(), ToolCreatorState())
+
+        assertTrue(json.contains("\"Claude Code\""), "agent display name must travel: $json")
+        assertTrue(json.contains("\"OpenCode\""), json)
+        assertTrue(json.contains("\"files.read\""), "permission id must travel: $json")
+        assertTrue(json.contains("\"Read workspace files\""), "permission label must travel: $json")
+    }
+
 }

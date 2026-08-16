@@ -151,7 +151,14 @@ class KubernetesStateHolderTest {
     /** Every spelling kubectl accepts for the kind must hit the refusal. */
     @Test
     fun `recognises every spelling of a Secret kind`() {
-        listOf("secret", "Secret", "secrets", "SECRETS", "secret/db").forEach { kind ->
+        listOf(
+            "secret", "Secret", "secrets", "SECRETS", "secret/db",
+            // kubectl also takes <resource>.<version>.<group>, and for the core group the
+            // trailing dot is required rather than optional. Every one of these is a working
+            // `kubectl get <kind> <name> -o yaml`, and every one used to slip past the refusal.
+            "secrets.", "secret.v1.", "secrets.v1.core", "secret.v1.core", "SECRETS.V1.CORE",
+            " secrets. ",
+        ).forEach { kind ->
             assertTrue(KubernetesStateHolder.isSecretKind(kind), "$kind must be treated as a Secret")
         }
     }
@@ -159,7 +166,11 @@ class KubernetesStateHolderTest {
     /** …and nothing else, or `ShowYaml` would refuse legitimate kinds. */
     @Test
     fun `does not mistake other kinds for Secrets`() {
-        listOf("pod", "configmap", "deployment", "service", "secretproviderclass").forEach { kind ->
+        listOf(
+            "pod", "configmap", "deployment", "service", "secretproviderclass",
+            // Group-qualified spellings of things that merely start with "secret".
+            "secretproviderclasses.v1alpha1.secrets-store.csi.x-k8s.io", "sealedsecrets.bitnami.com",
+        ).forEach { kind ->
             assertFalse(KubernetesStateHolder.isSecretKind(kind), "$kind must not be treated as a Secret")
         }
     }

@@ -45,6 +45,28 @@ data class ToolCreatorState(
     val githubAvailable: Boolean = false,
     /** Always false out-of-process — the host's plugin storage is not on the wire. */
     val persistenceAvailable: Boolean = false,
+    /** Every selectable agent with its display name, so the host can render the picker. */
+    val agentOptions: List<ToolCreatorAgentOption> =
+        ToolCreatorAgent.entries.map { ToolCreatorAgentOption(it, it.displayName) },
+    /** Every selectable permission with its display text. */
+    val permissionOptions: List<ToolCreatorPermissionOption> =
+        ToolCreatorPermission.entries.map { ToolCreatorPermissionOption(it, it.id, it.label, it.description) },
+)
+
+/**
+ * One selectable agent, as data rather than as an enum - this is what carries the display name
+ * across the wire. See [ToolCreatorAgent].
+ */
+@Serializable
+data class ToolCreatorAgentOption(val agent: ToolCreatorAgent, val displayName: String)
+
+/** One selectable permission, as data. See [ToolCreatorPermission]. */
+@Serializable
+data class ToolCreatorPermissionOption(
+    val permission: ToolCreatorPermission,
+    val id: String,
+    val label: String,
+    val description: String,
 )
 
 /** The creation form. Mirrors the plugin's `FormState`, minus its Compose dialog. */
@@ -101,7 +123,13 @@ data class ToolCreatorJob(
 @Serializable
 enum class ToolCreatorJobStatus { RUNNING, SUCCESS, FAILED }
 
-/** Mirrors the plugin's `CliAgent`, including the launch command per agent. */
+/**
+ * Mirrors the plugin's `CliAgent`, including the launch command per agent.
+ *
+ * **[displayName] and [binary] do not travel.** kotlinx.serialization encodes an enum as its
+ * serial name alone, so a host receives `"CLAUDE_CODE"`. Both are used child-side; what the
+ * renderer needs is published as [ToolCreatorState.agentOptions].
+ */
 @Serializable
 enum class ToolCreatorAgent(val displayName: String, val binary: String) {
     CLAUDE_CODE("Claude Code", "claude"),
@@ -128,7 +156,12 @@ enum class ToolCreatorAgent(val displayName: String, val binary: String) {
     }
 }
 
-/** Mirrors the plugin's `ToolPermission`. Informational: it shapes the skill and README. */
+/**
+ * Mirrors the plugin's `ToolPermission`. Informational: it shapes the skill and README.
+ *
+ * **[id], [label] and [description] do not travel** - an enum reaches the host as its serial
+ * name only. The renderable form is [ToolCreatorState.permissionOptions].
+ */
 @Serializable
 enum class ToolCreatorPermission(val id: String, val label: String, val description: String) {
     READ_FILES("files.read", "Read workspace files", "Read files and directories in the user workspace"),

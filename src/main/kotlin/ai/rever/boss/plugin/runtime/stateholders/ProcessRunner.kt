@@ -6,6 +6,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -96,17 +97,32 @@ internal object ProcessRunner {
                     process.outputStream.bufferedWriter().use { it.write(stdin) }
                 }
             }
+            // The timeout has to bound the READS, not just the exit reap. readText() blocks
+            // until the child closes stdout, so a `waitFor(timeoutMs)` placed after it bounds
+            // only the gap between EOF and exit - and a child that holds stdout open and never
+            // answers is exactly the case worth bounding. It is reachable: the docker CLI has
+            // no client-side request timeout, so a wedged daemon socket hangs `docker version`
+            // and the holder sits at daemon=UNKNOWN, busy=true, with no rows and no error.
+            //
+            // Raced, not wrapped. readText() has no suspension point, so simply enclosing it in
+            // withTimeoutOrNull would give the cancellation nowhere to land - the timeout could
+            // not fire until the read it is meant to bound had already returned. Awaiting a
+            // separate job does suspend, and destroying the child on expiry closes its streams,
+            // which is what actually unblocks the readers.
             coroutineScope {
-                val errText = async {
-                    runCatching { process.errorStream.bufferedReader().readText() }.getOrDefault("")
-                }
-                val outText = runCatching { process.inputStream.bufferedReader().readText() }.getOrDefault("")
-                val err = errText.await()
-                if (!process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
-                    process.destroyForcibly()
-                    ExecResult(EXIT_TIMEOUT, outText, timeoutMessage)
-                } else {
+                val body = async {
+                    val errText = async {
+                        runCatching { process.errorStream.bufferedReader().readText() }.getOrDefault("")
+                    }
+                    val outText = runCatching { process.inputStream.bufferedReader().readText() }.getOrDefault("")
+                    val err = errText.await()
+                    process.waitFor()
                     ExecResult(process.exitValue(), outText, err)
+                }
+                withTimeoutOrNull(timeoutMs) { body.await() } ?: run {
+                    process.destroyForcibly()
+                    body.cancel()
+                    ExecResult(EXIT_TIMEOUT, "", timeoutMessage)
                 }
             }
         } finally {

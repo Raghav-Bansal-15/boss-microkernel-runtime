@@ -183,7 +183,10 @@ private fun createStateSyncService(
         stateHolder = stateHolder,
         serializeState = { state ->
             try {
-                kotlinx.serialization.json.Json.encodeToString(
+                // StateWireJson, not a bare Json: the latter omits every property still at its
+                // default, which encoded a fresh state as `{}` and silently dropped the
+                // "this is unavailable out-of-process" flags whenever they were false.
+                StateWireJson.encodeToString(
                     kotlinx.serialization.serializer(state!!::class.java),
                     state,
                 ).toByteArray()
