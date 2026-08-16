@@ -268,7 +268,25 @@ class DockerStateHolder : PluginStateHolder<DockerState, DockerIntent, Nothing> 
         )
     }
 
-    private constructor(scope: CoroutineScope, projectPath: String?) : super(DockerState(), scope) {
+    /**
+     * @param autoStart whether construction may reach the docker CLI.
+     *
+     * True in production: the panel is expected to be populated by the time a user looks at it.
+     * Tests pass false, because construction is itself a side effect - every `DockerStateHolder(scope)`
+     * otherwise launches `docker version`, `ps -a`, `images`, `volume ls` and `network ls` against whatever daemon or cluster the machine happens to be
+     * pointed at. That is a race today rather than a certainty (the launched coroutine usually
+     * loses to the test's `tearDown`), which makes it worse, not better: it is the kind of thing
+     * that stays quiet until CI is slow one morning. `build.yml` runs `./gradlew build` on every
+     * pull request, so the machine in question can be a runner.
+     *
+     * The project scan is deliberately NOT gated - it only reads the filesystem, and several
+     * tests depend on it having run.
+     */
+    internal constructor(
+        scope: CoroutineScope,
+        projectPath: String?,
+        autoStart: Boolean = true,
+    ) : super(DockerState(), scope) {
         this.projectPath = projectPath
         // Publish an initial versioned state before any docker call completes. A
         // holder that never calls updateState stays at version 0 and never
@@ -276,7 +294,7 @@ class DockerStateHolder : PluginStateHolder<DockerState, DockerIntent, Nothing> 
         // take seconds against a daemon that is booting.
         updateState { copy(ready = true) }
         onIntent(DockerIntent.RescanProject)
-        onIntent(DockerIntent.Refresh)
+        if (autoStart) onIntent(DockerIntent.Refresh)
     }
 
     override fun onIntent(intent: DockerIntent) {

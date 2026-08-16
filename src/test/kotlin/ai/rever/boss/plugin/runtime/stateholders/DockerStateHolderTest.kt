@@ -41,7 +41,7 @@ class DockerStateHolderTest {
      */
     @Test
     fun `publishes a versioned state before any docker call completes`() {
-        val holder = DockerStateHolder(scope)
+        val holder = DockerStateHolder(scope, projectPath = null, autoStart = false)
 
         assertTrue(holder.version > 0, "version must advance past 0 or nothing ever renders")
         assertTrue(holder.currentState().ready)
@@ -50,7 +50,7 @@ class DockerStateHolderTest {
     /** Honest capability reporting, so the host renders no dead Stop/Remove/Build. */
     @Test
     fun `reports mutations terminal and persistence as unavailable`() {
-        val state = DockerStateHolder(scope).currentState()
+        val state = DockerStateHolder(scope, projectPath = null, autoStart = false).currentState()
 
         assertFalse(state.mutationsAvailable, "no start/stop/rm intent exists")
         assertFalse(state.terminalAvailable, "openTab is an inherited no-op on the IPC proxy")
@@ -60,7 +60,7 @@ class DockerStateHolderTest {
     /** The plugin opens Project + Containers by default; a renderer mirrors that. */
     @Test
     fun `starts with the plugin's default expanded sections`() {
-        val state = DockerStateHolder(scope).currentState()
+        val state = DockerStateHolder(scope, projectPath = null, autoStart = false).currentState()
 
         assertEquals(listOf(DockerSection.PROJECT, DockerSection.CONTAINERS), state.expandedSections)
     }
@@ -68,7 +68,7 @@ class DockerStateHolderTest {
     /** No project path on this context, so there is nothing to scan. */
     @Test
     fun `has no project artifacts without a project path`() {
-        assertEquals(emptyList(), DockerStateHolder(scope).currentState().projectArtifacts)
+        assertEquals(emptyList(), DockerStateHolder(scope, projectPath = null, autoStart = false).currentState().projectArtifacts)
     }
 
     // endregion
@@ -77,7 +77,7 @@ class DockerStateHolderTest {
 
     @Test
     fun `toggling a section adds it then removes it`() {
-        val holder = DockerStateHolder(scope)
+        val holder = DockerStateHolder(scope, projectPath = null, autoStart = false)
 
         holder.onIntent(DockerIntent.ToggleSection(DockerSection.IMAGES))
         assertTrue(DockerSection.IMAGES in holder.currentState().expandedSections)
@@ -88,7 +88,7 @@ class DockerStateHolderTest {
 
     @Test
     fun `set query is mirrored verbatim`() {
-        val holder = DockerStateHolder(scope)
+        val holder = DockerStateHolder(scope, projectPath = null, autoStart = false)
 
         holder.onIntent(DockerIntent.SetQuery("nginx"))
 
@@ -101,7 +101,7 @@ class DockerStateHolderTest {
      */
     @Test
     fun `selecting an unknown container is ignored`() {
-        val holder = DockerStateHolder(scope)
+        val holder = DockerStateHolder(scope, projectPath = null, autoStart = false)
 
         holder.onIntent(DockerIntent.SelectContainer("does-not-exist"))
 
@@ -110,7 +110,7 @@ class DockerStateHolderTest {
 
     @Test
     fun `clearing the selection also clears the detail body`() {
-        val holder = DockerStateHolder(scope)
+        val holder = DockerStateHolder(scope, projectPath = null, autoStart = false)
 
         holder.onIntent(DockerIntent.ClearSelection)
 

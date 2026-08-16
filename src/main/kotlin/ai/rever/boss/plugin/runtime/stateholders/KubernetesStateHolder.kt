@@ -334,7 +334,25 @@ class KubernetesStateHolder : PluginStateHolder<KubernetesState, KubernetesInten
         )
     }
 
-    private constructor(scope: CoroutineScope, projectPath: String?) : super(KubernetesState(), scope) {
+    /**
+     * @param autoStart whether construction may reach the kubectl CLI.
+     *
+     * True in production: the panel is expected to be populated by the time a user looks at it.
+     * Tests pass false, because construction is itself a side effect - every `KubernetesStateHolder(scope)`
+     * otherwise launches `kubectl config view`, `current-context`, `version` and `get pods` against whatever daemon or cluster the machine happens to be
+     * pointed at. That is a race today rather than a certainty (the launched coroutine usually
+     * loses to the test's `tearDown`), which makes it worse, not better: it is the kind of thing
+     * that stays quiet until CI is slow one morning. `build.yml` runs `./gradlew build` on every
+     * pull request, so the machine in question can be a runner.
+     *
+     * The project scan is deliberately NOT gated - it only reads the filesystem, and several
+     * tests depend on it having run.
+     */
+    internal constructor(
+        scope: CoroutineScope,
+        projectPath: String?,
+        autoStart: Boolean = true,
+    ) : super(KubernetesState(), scope) {
         this.projectPath = projectPath
         // Publish an initial versioned state before any kubectl call completes. A
         // holder that never calls updateState stays at version 0 and never
@@ -342,7 +360,7 @@ class KubernetesStateHolder : PluginStateHolder<KubernetesState, KubernetesInten
         // unreachable cluster takes seconds even with a request timeout.
         updateState { copy(ready = true) }
         onIntent(KubernetesIntent.RescanProject)
-        onIntent(KubernetesIntent.Refresh)
+        if (autoStart) onIntent(KubernetesIntent.Refresh)
     }
 
     override fun onIntent(intent: KubernetesIntent) {
