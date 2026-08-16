@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -83,8 +84,21 @@ abstract class PluginStateHolder<S, I, E>(
      * Update the state using a transformation function.
      * Thread-safe: uses StateFlow's atomic update.
      */
+    /**
+     * Apply [transform] to the current state and publish the result.
+     *
+     * **`update`, not `value = transform(value)`.** The latter is a read-modify-write, so two
+     * interleaved calls silently drop one of them - the loser's `copy()` was computed from a
+     * state that no longer exists by the time it is stored. That was harmless while holders only
+     * ever updated from one place; it stopped being harmless when holders began running a
+     * refresh and a detail fetch on separate coroutines, where the failure is a whole row list
+     * vanishing because a detail write landed between the refresh's read and its store.
+     *
+     * [transform] may therefore run more than once under contention, so it must be pure - which
+     * every `copy()`-shaped caller already is.
+     */
     protected fun updateState(transform: S.() -> S) {
-        _state.value = transform(_state.value)
+        _state.update { it.transform() }
         _version.incrementAndGet()
     }
 
