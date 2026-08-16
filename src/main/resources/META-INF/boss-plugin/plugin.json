@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "pluginId": "ai.rever.boss.microkernel.runtime",
   "displayName": "Microkernel Runtime",
-  "version": "1.0.23",
+  "version": "1.0.24",
   "apiVersion": "1.0.0",
   "mainClass": "ai.rever.boss.plugin.runtime.PluginProcessMainKt",
   "type": "service",
