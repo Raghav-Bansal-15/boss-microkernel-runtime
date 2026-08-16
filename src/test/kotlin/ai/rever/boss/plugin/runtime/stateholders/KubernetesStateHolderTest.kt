@@ -40,7 +40,7 @@ class KubernetesStateHolderTest {
      */
     @Test
     fun `publishes a versioned state before any kubectl call completes`() {
-        val holder = KubernetesStateHolder(scope)
+        val holder = KubernetesStateHolder(scope, projectPath = null, autoStart = false)
 
         assertTrue(holder.version > 0, "version must advance past 0 or nothing ever renders")
         assertTrue(holder.currentState().ready)
@@ -48,7 +48,7 @@ class KubernetesStateHolderTest {
 
     @Test
     fun `reports mutations forwards terminal and persistence as unavailable`() {
-        val state = KubernetesStateHolder(scope).currentState()
+        val state = KubernetesStateHolder(scope, projectPath = null, autoStart = false).currentState()
 
         assertFalse(state.mutationsAvailable, "no delete/scale/rollout/apply intent exists")
         assertFalse(state.forwardsAvailable, "a forward here is a process the host cannot see")
@@ -58,7 +58,7 @@ class KubernetesStateHolderTest {
 
     @Test
     fun `starts on the default namespace with the plugin's default sections`() {
-        val state = KubernetesStateHolder(scope).currentState()
+        val state = KubernetesStateHolder(scope, projectPath = null, autoStart = false).currentState()
 
         assertEquals("default", state.selectedNamespace)
         assertEquals(listOf(KubeSection.WORKLOADS, KubeSection.PODS), state.expandedSections)
@@ -71,7 +71,7 @@ class KubernetesStateHolderTest {
     /** Pointing at a context the kubeconfig never offered would query nothing. */
     @Test
     fun `selecting an unknown context is ignored`() {
-        val holder = KubernetesStateHolder(scope)
+        val holder = KubernetesStateHolder(scope, projectPath = null, autoStart = false)
 
         holder.onIntent(KubernetesIntent.SelectContext("no-such-context"))
 
@@ -80,7 +80,7 @@ class KubernetesStateHolderTest {
 
     @Test
     fun `selecting a namespace replaces the selection`() {
-        val holder = KubernetesStateHolder(scope)
+        val holder = KubernetesStateHolder(scope, projectPath = null, autoStart = false)
 
         holder.onIntent(KubernetesIntent.SelectNamespace("kube-system"))
 
@@ -89,7 +89,7 @@ class KubernetesStateHolderTest {
 
     @Test
     fun `toggling a section adds it then removes it`() {
-        val holder = KubernetesStateHolder(scope)
+        val holder = KubernetesStateHolder(scope, projectPath = null, autoStart = false)
 
         holder.onIntent(KubernetesIntent.ToggleSection(KubeSection.SERVICES))
         assertTrue(KubeSection.SERVICES in holder.currentState().expandedSections)
@@ -100,7 +100,7 @@ class KubernetesStateHolderTest {
 
     @Test
     fun `selecting a resource records its kind and name`() {
-        val holder = KubernetesStateHolder(scope)
+        val holder = KubernetesStateHolder(scope, projectPath = null, autoStart = false)
 
         holder.onIntent(KubernetesIntent.SelectResource("pod", "api-7d9"))
 
@@ -119,7 +119,7 @@ class KubernetesStateHolderTest {
      */
     @Test
     fun `refuses to render a Secret's yaml`() {
-        val holder = KubernetesStateHolder(scope)
+        val holder = KubernetesStateHolder(scope, projectPath = null, autoStart = false)
 
         holder.onIntent(KubernetesIntent.ShowYaml("secret", "db-password"))
 
@@ -136,9 +136,9 @@ class KubernetesStateHolderTest {
      */
     @Test
     fun `the Secret refusal carries nothing from the cluster`() {
-        val first = KubernetesStateHolder(scope)
+        val first = KubernetesStateHolder(scope, projectPath = null, autoStart = false)
         first.onIntent(KubernetesIntent.ShowYaml("secret", "db-password"))
-        val second = KubernetesStateHolder(scope)
+        val second = KubernetesStateHolder(scope, projectPath = null, autoStart = false)
         second.onIntent(KubernetesIntent.ShowYaml("secrets", "tls-cert"))
 
         assertEquals(first.currentState().detailText, second.currentState().detailText)

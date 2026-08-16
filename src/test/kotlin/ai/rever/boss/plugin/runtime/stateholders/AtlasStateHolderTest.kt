@@ -112,6 +112,14 @@ class AtlasStateHolderTest {
     @Test
     fun `clearing the conversation empties the transcript`() {
         val holder = AtlasStateHolder(scope)
+        // Same guard as the send test above, and for a sharper reason: without it this line
+        // spawns the real `claude` binary and starts a model turn on any machine that has it
+        // installed - measured, not theorised, as
+        // `claude -p --output-format stream-json --input-format text --verbose` on every run of
+        // the suite. `build.yml` runs `./gradlew build` on every pull request, so that machine
+        // can be a CI runner. The no-backend path is the one a unit test can honestly cover.
+        if (holder.currentState().backendAvailable) return
+
         holder.onIntent(AtlasIntent.Send("hello"))
 
         holder.onIntent(AtlasIntent.ClearConversation)

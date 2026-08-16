@@ -42,7 +42,7 @@ class IntentDeserializerArmsTest {
     @Test
     fun `routes docker intents to the docker decoder`() {
         val decoded = resolveIntentDeserializer(
-            DockerStateHolder(scope),
+            DockerStateHolder(scope, projectPath = null, autoStart = false),
             "SelectContainer",
             "abc123".toByteArray(),
         )
@@ -53,7 +53,7 @@ class IntentDeserializerArmsTest {
     @Test
     fun `routes kubernetes intents to the kubernetes decoder`() {
         val decoded = resolveIntentDeserializer(
-            KubernetesStateHolder(scope),
+            KubernetesStateHolder(scope, projectPath = null, autoStart = false),
             "SelectNamespace",
             "kube-system".toByteArray(),
         )
@@ -92,7 +92,7 @@ class IntentDeserializerArmsTest {
     fun `passes an empty payload through as an empty string`() {
         assertEquals(
             DockerIntent.Refresh,
-            resolveIntentDeserializer(DockerStateHolder(scope), "Refresh", ByteArray(0)),
+            resolveIntentDeserializer(DockerStateHolder(scope, projectPath = null, autoStart = false), "Refresh", ByteArray(0)),
         )
     }
 
@@ -100,7 +100,7 @@ class IntentDeserializerArmsTest {
     @Test
     fun `drops an intent type no arm knows`() {
         assertNull(
-            resolveIntentDeserializer(DockerStateHolder(scope), "NoSuchIntent", "x".toByteArray()),
+            resolveIntentDeserializer(DockerStateHolder(scope, projectPath = null, autoStart = false), "NoSuchIntent", "x".toByteArray()),
         )
     }
 }
