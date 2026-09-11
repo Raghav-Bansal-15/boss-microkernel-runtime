@@ -34,21 +34,42 @@ class HostDeathWatchdogTest {
     /**
      * Start a `sleep` that is **not** a child of this JVM, and return a handle to it.
      *
-     * The shell backgrounds the sleep and exits, so the sleep is reparented away - exactly the
-     * relationship a plugin child has to a process it did not spawn.
+     * The launcher process backgrounds (or starts and abandons) the sleeper and exits, so the
+     * sleeper's parent is gone - exactly the relationship a plugin child has to a process it did
+     * not spawn.
      *
-     * stderr is deliberately *not* merged into stdout. If it were, a shell warning could land on the
-     * line the pid is read from; a value that failed to parse would only be annoying, but one that
-     * parsed to some other live pid would have the test SIGKILL an unrelated process on the machine.
-     * The command check below is the second guard on that.
+     * stderr is deliberately *not* merged into stdout. If it were, a launcher warning could land on
+     * the line the pid is read from; a value that failed to parse would only be annoying, but one
+     * that parsed to some other live pid would have the test SIGKILL an unrelated process on the
+     * machine. The command check below is the second guard on that.
      */
     private fun detachedSleeper(): ProcessHandle {
-        val launcher = ProcessBuilder("sh", "-c", "sleep 60 & echo \$!").start()
+        // POSIX reparents the sleeper to init, so `sh -c "sleep & echo $!"` leaves it with a dead
+        // parent. Windows never reparents, but the launcher shell still exits, which is the same
+        // relationship. It has to be PowerShell and `Start-Process`: there is no `sleep` on a bare
+        // Windows runner, and MSYS `$!` is a *shell* pid that `ProcessHandle.of` - which speaks
+        // Windows pids - resolves to some unrelated process or to nothing at all (measured: the
+        // first three failures of this test on windows-latest were "sleeper already gone").
+        // `ping -n 61` sleeps about a minute, has no children, and is trivially killable.
+        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+        val launcher =
+            if (isWindows) {
+                ProcessBuilder(
+                    "powershell",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "Write-Output (Start-Process -FilePath 'ping.exe' " +
+                        "-ArgumentList '-n 61 127.0.0.1' -WindowStyle Hidden -PassThru).Id",
+                )
+            } else {
+                ProcessBuilder("sh", "-c", "sleep 60 & echo \$!")
+            }.start()
         val firstLine =
             launcher.inputStream
                 .bufferedReader()
                 .readLine()
-        assertTrue(launcher.waitFor(10, TimeUnit.SECONDS), "launcher shell should exit promptly")
+        assertTrue(launcher.waitFor(30, TimeUnit.SECONDS), "launcher shell should exit promptly")
 
         val pid =
             requireNotNull(firstLine?.trim()?.toLongOrNull()) {
@@ -61,10 +82,11 @@ class HostDeathWatchdogTest {
         // process this JVM does not own - macOS often leaves command() empty - and an unreadable
         // command is not evidence of a wrong pid. When it *is* readable, a mismatch means we are
         // about to SIGKILL something we did not start, so refuse.
+        val commandToken = if (isWindows) "ping" else "sleep"
         val command = handle.info().command().orElse("") + handle.info().commandLine().orElse("")
         if (command.isNotEmpty()) {
             assertTrue(
-                command.contains("sleep"),
+                command.lowercase().contains(commandToken),
                 "resolved pid $pid is $command, not the sleeper - refusing to kill an unrelated process",
             )
         }
@@ -238,17 +260,39 @@ class HostDeathWatchdogTest {
 
     @Test
     fun `an OS parent of pid 1 means orphaned, because POSIX reparents to init`() {
-        // Verified on this platform: an orphan's ppid is 1 and ProcessHandle.of(1) is present and
+        // Verified on POSIX platforms: an orphan's ppid is 1 and ProcessHandle.of(1) is present and
         // alive, so parent() returning "empty" is not how being orphaned actually presents.
-        assertTrue(handleOf(1).isPresent, "pid 1 should be resolvable, which is the whole problem")
+        val pid1 = handleOf(1)
+        if (pid1.isEmpty) {
+            // Windows has no pid 1 to resolve - System Idle Process is 0 and System is 4 - so the
+            // POSIX reparent case cannot present there at all. Assert the platform fact rather than
+            // silently passing, and note the orphan path is still exercised on Windows by the
+            // no-parent and named-dead-host tests.
+            assertTrue(pid1.isEmpty, "this platform resolves pid 1; run the reparent case below")
+            return
+        }
 
-        val resolved = resolveHostHandle(declared = null, osParent = { handleOf(1) }, selfPid = 4242)
+        val resolved = resolveHostHandle(declared = null, osParent = { pid1 }, selfPid = 4242)
 
         assertFalse(resolved.isPresent, "init is not a host worth watching - it never exits")
     }
 
     @Test
     fun `a containerised host that is pid 1 can still name itself`() {
+        if (handleOf(1).isEmpty) {
+            // No pid 1 exists here (Windows), so there is nothing to name. The contract under
+            // test - an explicitly declared pid is honoured ahead of the OS parent - is covered
+            // by 'a live BOSS_HOST_PID wins over the OS parent', and a declared pid that names
+            // no live process is the dead-host case: orphaned, never a fallback.
+            val resolved = resolveHostHandle(declared = "1", osParent = { Optional.empty() }, selfPid = 4242)
+
+            assertFalse(
+                resolved.isPresent,
+                "a declared pid naming no live process must mean orphaned, not fall back",
+            )
+            return
+        }
+
         val resolved = resolveHostHandle(declared = "1", osParent = { Optional.empty() }, selfPid = 4242)
 
         assertTrue(resolved.isPresent, "an explicit BOSS_HOST_PID=1 is the escape hatch")

@@ -1,0 +1,4 @@
+# The IPC transport contract is byte-compared by the host
+# (IpcTransport.requireCompatibleRuntime). A CRLF checkout on Windows would
+# corrupt it, so line-ending conversion is disabled for it outright.
+src/main/resources/META-INF/boss-runtime/security-contract -text
