@@ -1,5 +1,6 @@
 package ai.rever.boss.plugin.runtime.stateholders
 
+import ai.rever.boss.ipc.auth.IpcEnvironment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -83,6 +84,7 @@ internal object ProcessRunner {
                 .joinToString(File.pathSeparator)
         }
         builder.environment().putAll(environment)
+        IpcEnvironment.removeCredentials(builder.environment())
         val process = builder.start()
 
         // Kill the child the moment this coroutine is cancelled; closing its
@@ -163,6 +165,7 @@ internal object ProcessRunner {
                 .joinToString(File.pathSeparator)
         }
         builder.environment().putAll(environment)
+        IpcEnvironment.removeCredentials(builder.environment())
         val process = builder.start()
 
         val killer = currentCoroutineContext().job.invokeOnCompletion { process.destroyForcibly() }

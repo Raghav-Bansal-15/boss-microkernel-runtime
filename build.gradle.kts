@@ -67,11 +67,15 @@ val bossIpcVersion: String = providers.gradleProperty("ipc.version").orElse("1.0
 val contractVersion: String = providers.gradleProperty("contract.version").orElse("1.0.0").get()
 
 // CI: jars downloaded into build/downloaded-deps/ by the `downloadDeps` task before compile.
-val useLocalDependencies: Boolean = (System.getenv("CI") != "true") &&
-    file("../../BossConsole/build/upstream-artifacts/boss-ipc-$bossIpcVersion.jar").exists()
+val explicitBossConsoleDir = providers.gradleProperty("bossconsole.dir")
+    .orElse(providers.environmentVariable("BOSSCONSOLE_DIR"))
+val bossConsoleDir = file(explicitBossConsoleDir.orElse("../../BossConsole").get())
+val localUpstreamDir = bossConsoleDir.resolve("build/upstream-artifacts")
+val useLocalDependencies: Boolean = explicitBossConsoleDir.isPresent ||
+    (System.getenv("CI") != "true" && localUpstreamDir.resolve("boss-ipc-$bossIpcVersion.jar").exists())
 
 val upstreamJarDir: File = if (useLocalDependencies) {
-    file("../../BossConsole/build/upstream-artifacts")
+    localUpstreamDir
 } else {
     file("build/downloaded-deps")
 }
@@ -96,7 +100,7 @@ val upstreamJars = listOf(
 // contract into its own classloader, and a child JVM built against a different revision of it is
 // exactly the mismatch the IPC compat gate cannot see.
 val bossPluginApiVersion: String =
-    providers.gradleProperty("boss.plugin.api.version").orElse("1.0.68").get()
+    providers.gradleProperty("boss.plugin.api.version").orElse("1.0.88").get()
 val bossPluginApiJarName = "boss-plugin-api-$bossPluginApiVersion.jar"
 
 // Resolution order mirrors the upstream jars: locally built sibling first (both live under
@@ -104,7 +108,7 @@ val bossPluginApiJarName = "boss-plugin-api-$bossPluginApiVersion.jar"
 val bossPluginApiCandidates =
     listOf(
         file("../boss-plugin-api/build/libs/$bossPluginApiJarName"),
-        file("../../BossConsole/plugin-platform/plugin-api-core/build/api-contract/$bossPluginApiJarName"),
+        bossConsoleDir.resolve("plugin-platform/plugin-api-core/build/api-contract/$bossPluginApiJarName"),
     )
 val bossPluginApiJar: File =
     bossPluginApiCandidates.firstOrNull { it.exists() }
@@ -150,17 +154,19 @@ dependencies {
     // the boss-ipc gencode is generated with that version and the protobuf
     // runtime refuses to load gencode newer than itself (child JVM dies at
     // startup with ProtobufRuntimeVersionException). Keep in lockstep.
-    implementation("io.grpc:grpc-netty:1.72.0")
-    implementation("io.grpc:grpc-protobuf:1.72.0")
-    implementation("io.grpc:grpc-stub:1.72.0")
-    implementation("io.grpc:grpc-kotlin-stub:1.4.3")
+    implementation("io.grpc:grpc-netty:1.84.0")
+    implementation("io.grpc:grpc-protobuf:1.84.0")
+    implementation("io.grpc:grpc-stub:1.84.0")
+    implementation("io.grpc:grpc-util:1.84.0")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.85")
+    implementation("io.grpc:grpc-kotlin-stub:1.5.0")
     implementation("com.google.protobuf:protobuf-java:4.35.1")
     implementation("com.google.protobuf:protobuf-kotlin:4.35.1")
-    implementation("io.netty:netty-transport-native-unix-common:4.2.6.Final")
-    implementation("io.netty:netty-transport-native-kqueue:4.2.6.Final:osx-aarch_64")
-    implementation("io.netty:netty-transport-native-kqueue:4.2.6.Final:osx-x86_64")
-    implementation("io.netty:netty-transport-native-epoll:4.2.6.Final:linux-aarch_64")
-    implementation("io.netty:netty-transport-native-epoll:4.2.6.Final:linux-x86_64")
+    implementation("io.netty:netty-transport-native-unix-common:4.2.17.Final")
+    implementation("io.netty:netty-transport-native-kqueue:4.2.17.Final:osx-aarch_64")
+    implementation("io.netty:netty-transport-native-kqueue:4.2.17.Final:osx-x86_64")
+    implementation("io.netty:netty-transport-native-epoll:4.2.17.Final:linux-aarch_64")
+    implementation("io.netty:netty-transport-native-epoll:4.2.17.Final:linux-x86_64")
 
     // Compose runtime — bundled into fatJar so OOP plugins can use it.
     // Versions match BossConsole.
@@ -279,6 +285,8 @@ tasks.register<Jar>("fatJar") {
     description = "Self-contained runtime JAR for child JVM spawn (matches the legacy in-tree :fatJar output)."
     archiveClassifier.set("all")
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    // Original dependency signatures cannot authenticate a newly assembled, flattened JAR.
+    exclude("META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA")
     manifest {
         attributes["Main-Class"] = "ai.rever.boss.plugin.runtime.PluginProcessMainKt"
     }
@@ -323,5 +331,24 @@ tasks.register("computeFatJarSha256") {
         // Also emit machine-readable form for CI shell `eval`.
         File(layout.buildDirectory.get().asFile, "fatjar-sha256.txt").writeText(hex)
         File(layout.buildDirectory.get().asFile, "fatjar-size.txt").writeText(jar.length().toString())
+    }
+}
+
+// Exercise the packaged runtime and a tiny fixture plugin, not the Gradle test classpath.
+val integrationFixtureJar = tasks.register<Jar>("integrationFixtureJar") {
+    dependsOn(tasks.testClasses)
+    archiveClassifier.set("integration-fixture")
+    from(sourceSets.test.get().output) {
+        include("ai/rever/boss/plugin/runtime/RuntimeFixturePlugin*.class")
+    }
+}
+
+tasks.test {
+    dependsOn("fatJar", integrationFixtureJar)
+    systemProperty("runtime.integration.jar", tasks.named<Jar>("fatJar").flatMap { it.archiveFile }.get().asFile.absolutePath)
+    systemProperty("runtime.fixture.jar", integrationFixtureJar.flatMap { it.archiveFile }.get().asFile.absolutePath)
+    // Synthetic inherited authority makes subprocess scrubbing tests exercise real environment inheritance.
+    listOf("BOSS_PROCESS_TOKEN", "BOSS_KERNEL_TLS_CERT", "BOSS_IPC_TLS_CERT", "BOSS_IPC_TLS_KEY", "BOSS_HOST_TOKEN").forEach {
+        environment(it, "synthetic-inherited")
     }
 }

@@ -1,31 +1,47 @@
 name: Build
 
-# Compiles and tests on every PR and push to main.
-#
-# There was no such job until now, and that is how a cross-repo break went
-# unnoticed: the release workflow only runs `fatJar` (main sources, on demand),
-# so a contract change in BossConsole that this repo could no longer compile
-# against only surfaced at the next release attempt. `build` covers the test
-# source set too, which is where the transport direction is asserted.
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, fix/authenticated-runtime]
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          path: runtime
+      # Immutable companion host implementation from BossConsole #575.
+      # Keep this until equivalent authenticated IPC artifacts are published.
+      - uses: actions/checkout@v4
+        with:
+          repository: risa-labs-inc/BossConsole
+          ref: aa750ce9d2db91bcfad06e01dd1f8cb7b6b12bb8
+          path: host
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
       - uses: gradle/actions/setup-gradle@v4
-
-      # CI=true makes build.gradle.kts skip the sibling-checkout branch and
-      # download the contract jars instead.
-      - name: Build and test
-        run: ./gradlew build --no-daemon --stacktrace
+      - name: Build the companion host contract
+        shell: bash
+        working-directory: host
+        run: ./gradlew assembleUpstreamJars --no-daemon
+      - name: Build and test the packaged runtime
+        shell: bash
+        working-directory: runtime
+        run: ./gradlew build fatJar -Pbossconsole.dir=../host --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runtime-tests-${{ matrix.os }}
+          path: runtime/build/test-results/

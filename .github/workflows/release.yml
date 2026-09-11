@@ -54,6 +54,9 @@ concurrency:
 
 jobs:
   release:
+    # Older hosts ignore minBossVersion on the GitHub runtime download path.
+    # Maintainers must complete compatible distribution before enabling this rollout.
+    if: ${{ vars.AUTHENTICATED_IPC_ROLLOUT_APPROVED == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -62,6 +65,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Require the coordinated minimum host release
+        env:
+          MIN_BOSS_VERSION: ${{ vars.AUTHENTICATED_IPC_MIN_BOSS_VERSION }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re
+          from pathlib import Path
+          version = os.environ.get("MIN_BOSS_VERSION", "")
+          if not re.fullmatch(r"[0-9]+(?:\.[0-9]+){2,3}(?:-[0-9A-Za-z.-]+)?", version):
+              raise SystemExit("Set AUTHENTICATED_IPC_MIN_BOSS_VERSION to the approved host release")
+          path = Path("src/main/resources/META-INF/boss-plugin/plugin.json")
+          manifest = json.loads(path.read_text())
+          manifest["minBossVersion"] = version
+          path.write_text(json.dumps(manifest, indent=2) + "\n")
+          PYTHON
 
       - name: Bump runtime version in plugin.json
         # On push: always patch-bump so same-version re-publish doesn't 400
