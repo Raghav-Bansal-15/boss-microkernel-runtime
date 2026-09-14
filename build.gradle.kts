@@ -100,7 +100,7 @@ val upstreamJars = listOf(
 // contract into its own classloader, and a child JVM built against a different revision of it is
 // exactly the mismatch the IPC compat gate cannot see.
 val bossPluginApiVersion: String =
-    providers.gradleProperty("boss.plugin.api.version").orElse("1.0.88").get()
+    providers.gradleProperty("boss.plugin.api.version").orElse("1.0.90").get()
 val bossPluginApiJarName = "boss-plugin-api-$bossPluginApiVersion.jar"
 
 // Resolution order mirrors the upstream jars: locally built sibling first (both live under
