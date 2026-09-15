@@ -2,6 +2,7 @@ package ai.rever.boss.plugin.runtime
 
 import ai.rever.boss.ipc.BossIpcClient
 import ai.rever.boss.ipc.BossIpcServer
+import ai.rever.boss.ipc.IpcVersion
 import ai.rever.boss.ipc.IpcTransport
 import ai.rever.boss.ipc.auth.IpcCall
 import ai.rever.boss.ipc.auth.IpcClientCredentials
@@ -23,6 +24,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.net.ServerSocket
 import java.nio.file.Files
@@ -54,6 +58,18 @@ class PackagedRuntimeSecurityTest {
                 updates.incrementAndGet()
                 emit(UIEvent.getDefaultInstance())
             }
+        }
+    }
+
+    @Test
+    fun `packaged runtime declares the authenticated host minimum`() {
+        JarFile(File(System.getProperty("runtime.integration.jar"))).use { jar ->
+            val text = jar.getInputStream(jar.getJarEntry("META-INF/boss-plugin/plugin.json"))
+                .bufferedReader().use { it.readText() }
+            val minimum = Json.parseToJsonElement(text).jsonObject.getValue("minIpcVersion").jsonPrimitive.content
+            assertEquals("1.1.0", minimum)
+            assertEquals(IpcVersion.CURRENT, minimum)
+            assertTrue(IpcVersion.isCompatible(minimum, "1.0.0") is IpcVersion.CompatResult.Incompatible)
         }
     }
 

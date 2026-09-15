@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: risa-labs-inc/BossConsole
-          ref: 8648bd6e73793c6733df71279b02114a5418d086
+          ref: 2cb5c6ac9c356bb60db2a21741bce1fc8b67b155
           path: host
       - uses: actions/setup-java@v4
         with:

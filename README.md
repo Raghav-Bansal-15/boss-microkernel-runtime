@@ -48,7 +48,7 @@ neither, the runtime logs that it is running in UI-only mode and carries on.
 ## Requirements
 
 - JDK 17
-- `apiVersion` 1.0.0, `minIpcVersion` 1.0.0. The host refuses to spawn a runtime whose IPC
+- `apiVersion` 1.0.0, `minIpcVersion` 1.1.0. The host refuses to spawn a runtime whose IPC
   version it cannot talk to, so the runtime version and the IPC version move independently.
 - gRPC, protobuf and netty native transports for macOS arm64/x64 and Linux arm64/x64. The
   **protobuf version must stay at or above BossConsole's pin**, or the child JVM dies during
